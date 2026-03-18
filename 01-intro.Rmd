@@ -1,0 +1,84 @@
+# Initialization {#initialization}
+
+To begin the curation process, you'll need to clone the dataorg repo to copy over local versions of scripts to run from the data-org container. Start with an empty directory and create a sub-directory called `code` to hold all the scripts and output tables throughout the curation process.
+
+
+```{bash create-empty-dirs, include=T, eval=F}
+cd /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/
+mkdir mydataset
+cd mydataset
+mkdir code
+cd code
+```
+
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>💡 Tip</strong></p>
+  <p>The curation process was containerized using Docker to ensure reproducibility and package/library version control. [GitHub](https://github.com/BGDlab/dataorg-container) </p>
+</div>
+
+
+
+To initialize your directory, run the following command to clone the internal repo within the clin-dataorg container
+
+```{bash initialize, include=T, eval=F}
+export SIMG="/mnt/isilon/bgdlab_processing/code/containers/clin-dataorg-0.0.2.sif"
+singularity run -B $PWD $SIMG python /app/scripts/initialize.py $PWD
+```
+![Output of initialize](images/initialize-cmd.png)
+
+
+
+## Output
+You should now have 6 scripts in your directory:   
+1. `array-launcher.sh` used to launch an array of SLURM jobs by subject (if subject has multiple sessions they are run one by one.)   
+2. `batch-cubids-combine.sh` used to speed up the CuBIDS process by splitting the dataset into relatively equal chunks and running the final CuBIDS command on each distinct chunk   
+3. `cubids-apply.sh` used to run CuBIDS renaming   
+4. `data-bidsify.py` used to bidsify data using HeuDiConv [\@heudiconv_ref] and write to a logfile the output   
+5. `run-clin-dataorg.py` used to launch dataset commands to bidsify a dataset, clean up intermediary processing files and run CuBIDS, post-CuBIDS dataset cleaning and updating, and dataset annotation. Also contains functions to check the status of SLURM jobs for an entire dataset   
+6. `run-cubids-prep.sh` used to run the preparatory CuBIDS commands   
+
+# Main CLI Reference {#cli}
+```
+usage: python run-clin-dataorg.py 
+								 [-h]   
+								 [WORK_DIR]   
+								 [CMD {setup, bidsify, cubids, cubids-prep,    
+											 cubids-apply, post-cubids, annotate}]   
+								 [-b BASE_DIR]    
+								 [-n DATASET_NAME]   
+								 [-d DICOMS]   
+								 [-m MANIFEST]   
+								 [-p PATTERN]   
+								 [-mm CUBIDS_FULL_CMD]   
+								 [-j]   
+```
+
+## Positional Arguments
+- `WORK_DIR`   
+    - Directory where processing output tables and files will be, **when organizing multiple datasets, this location must be unique otherwise files will be overwritten**   
+- `CMD`   
+    - Command to run based on stage in organizational process.   
+        - To setup and bidsify, *bidsify*   
+        - To run cubids’ commands, *cubids*   
+        - To perform post-cubids corrections, *post-cubids*   
+        - To annotate (add participants files and README), *annotate*   
+        - To just check to see what was actually delivered, *setup*   
+        - To just run cubids-prep steps (update sidecars, group, and scan identification), *cubids-prep*   
+        - To just run cubids apply, *cubids-apply*   
+        
+## Named Arguments
+- `-b, --base-dir`   
+    - Base directory where the new dataset will be created. Defaults to */mnt/isilon/bgdlab_processing/Data/SLIP*.
+- `-n, --dataset-name`   
+    - Name of dataset to create. If a directory exists with the dataset name under the base directory, user is prompted to continue with the assumption that it is OK to overwrite what is in the existing directory   
+- `-d, --dicoms`   
+    - Path to directory where dicoms were delivered. Expecting directories like *HM2GVG2LJ_189078808765_3001*   
+- `-m, --manifest`   
+    - Path to the request manifest table   
+s- `-p, --pattern`   
+    - Regex pattern of subject ID. Defaults to *HM[0-9]+*   
+- `-mm, --cubids-full-cmd`   
+    - Path to the cubids apply bash script where files are renamed, usually `run02_full_cmd.sh`     
+- `-j, --job-summary`   
+    - Flag to check job status   

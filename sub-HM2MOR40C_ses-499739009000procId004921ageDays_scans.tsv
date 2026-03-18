@@ -1,0 +1,5 @@
+filename	acq_time	operator	randstr
+anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-MPRAGE_rec-DIS2D_run-001_T1w.nii.gz	n/a	n/a	b85451a1
+anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TIRMDARKFatSat_rec-DIS2D_run-001_T2w.nii.gz	n/a	n/a	4eb0ba24
+anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-001_T2w.nii.gz	n/a	n/a	f506f8a2
+anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-002_T2w.nii.gz	n/a	n/a	8d41ba9b
