@@ -1,0 +1,2 @@
+subject_id	session_id	expected_output	actual_output	expected_anat_scans	actual_anat_scans	expected_dwi_scans	actual_dwi_scans	first_run	final_run
+sub-HM2MOR40C	ses-499739009000procId004921ageDays	21	20	4	4	0	0	missed	success

@@ -1,0 +1,4 @@
+acq-TSE_rec-DIS2D_T2w
+acq-MPRAGE_rec-DIS2D_T1w
+acq-TSE_rec-DIS2D_T2w
+acq-TIRMDARKFatSat_rec-DIS2D

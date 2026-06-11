@@ -1,0 +1,88 @@
+# Setup to Curate {#beginning}
+To begin curation, you'll need to identify a dataset from the CHOP data deliveries page in [Notion](https://www.notion.so/14a44906035d808ea54fcd012ed978bd?v=14a44906035d8037a337000c262795a2&source=copy_link). This walkthrough will use a small version of the 2025-04 monthly request. 
+
+Once you identify a dataset, you'll need to look for which directory the DICOMs were delivered to. This may be in the `TRiG Batch` column already but if it's not, you can run the `setup` command outlined in the following chapter to see which directory most of your dicoms are in.
+
+
+# Initialization {#initialization}
+
+The first step on Respublica will be to initialize your directory, meaning you'll clone the containerized data-org repo to copy over scripts to run on Respublica. 
+
+Start with an empty directory (named for the monthly request you're working on, in this example **mydataset**) and create a sub-directory called `code` to hold all the scripts and output tables throughout the curation process.
+
+
+```{bash create-empty-dirs, include=T, eval=F}
+cd /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/
+mkdir mydataset
+cd mydataset
+mkdir code
+cd code
+```
+
+The curation process was containerized using Docker to ensure reproducibility and package/library version control. [GitHub](https://github.com/BGDlab/dataorg-container)
+
+To initialize your directory, run the following command to clone the internal repo within the clin-dataorg container
+
+```{bash initialize, include=T, eval=F}
+export SIMG="/mnt/isilon/bgdlab_processing/code/containers/clin-dataorg-0.0.2.sif"
+singularity run -B $PWD $SIMG python /app/scripts/initialize.py $PWD
+```
+![Output of initialize](images/initialize-cmd.png)
+
+
+
+## Output
+You should now have 6 scripts in your directory:   
+1. `array-launcher.sh` used to launch an array of SLURM jobs by subject (if subject has multiple sessions they are run one by one.)   
+2. `batch-cubids-combine.sh` used to speed up the CuBIDS process by splitting the dataset into relatively equal chunks and running the final CuBIDS command on each distinct chunk   
+3. `cubids-apply.sh` used to run CuBIDS renaming   
+4. `data-bidsify.py` used to bidsify data using [HeuDiConv](https://heudiconv.readthedocs.io/en/v1.3.1/) and write to a logfile the output   
+5. `run-clin-dataorg.py` used to launch dataset commands to bidsify a dataset, clean up intermediary processing files and run CuBIDS, post-CuBIDS dataset cleaning and updating, and dataset annotation. Also contains functions to check the status of SLURM jobs for an entire dataset   
+6. `run-cubids-prep.sh` used to run the preparatory CuBIDS commands   
+
+# Main CLI Reference {#cli}
+The majority of the curation process is launched using a single script, `run-clin-dataorg.py`. This script acts as a launching pad for the various tasks needed to curate data: bidsification, running cubids, dataset annotation, SLURM job monitoring, etc. 
+```
+usage: python run-clin-dataorg.py 
+								 [-h]   
+								 [WORK_DIR]   
+								 [CMD {setup, bidsify, cubids, cubids-prep,    
+											 cubids-apply, post-cubids, annotate}]   
+								 [-b BASE_DIR]    
+								 [-n DATASET_NAME]   
+								 [-d DICOMS]   
+								 [-m MANIFEST]   
+								 [-p PATTERN]   
+								 [-mm CUBIDS_FULL_CMD]   
+								 [-j]   
+```
+
+## Positional Arguments
+- `WORK_DIR`   
+    - Directory where processing output tables and files will be, **when organizing multiple datasets, this location must be unique otherwise files will be overwritten**   
+- `CMD`   
+    - Command to run based on stage in organizational process.   
+        - To setup and bidsify, *bidsify*   
+        - To run cubids’ commands, *cubids*   
+        - To perform post-cubids corrections, *post-cubids*   
+        - To annotate (add participants files and README), *annotate*   
+        - To just check to see what was actually delivered, *setup*   
+        - To just run cubids-prep steps (update sidecars, group, and scan identification), *cubids-prep*   
+        - To just run cubids apply, *cubids-apply*   
+        
+## Named Arguments
+- `-b, --base-dir`   
+    - Base directory where the new dataset will be created. Defaults to */mnt/isilon/bgdlab_processing/Data/SLIP*.
+- `-n, --dataset-name`   
+    - Name of dataset to create. If a directory exists with the dataset name under the base directory, user is prompted to continue with the assumption that it is OK to overwrite what is in the existing directory   
+- `-d, --dicoms`   
+    - Path to directory where dicoms were delivered. Expecting directories like *HM2GVG2LJ_189078808765_3001*   
+- `-m, --manifest`   
+    - Path to the request manifest table   
+s- `-p, --pattern`   
+    - Regex pattern of subject ID. Defaults to *HM[0-9]+*   
+- `-mm, --cubids-full-cmd`   
+    - Path to the cubids apply bash script where files are renamed, usually `run02_full_cmd.sh`     
+- `-j, --job-summary`   
+    - Flag to check job status   
+    
