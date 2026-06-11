@@ -1,0 +1,1540 @@
+--- 
+title: "BGDLab Data Curation"
+author: "Dabriel Zimmerman"
+date: "`r Sys.Date()`"
+site: bookdown::bookdown_site
+documentclass: book
+bibliography: [book.bib, packages.bib]
+# url: your book url like https://bookdown.org/yihui/bookdown
+# cover-image: path to the social sharing image like images/cover.jpg
+description: |
+  Walkthrough of BGDLab data curation, specific for imaging data from CHOP.
+link-citations: yes
+github-repo: rstudio/bookdown-demo
+---
+
+# Introduction
+
+This walkthrough will help you understand the data curation process as well as the underlying infrastructure. 
+
+First a brief overview of Respublica. 
+
+## Using Respublica
+
+```{r setup, include=FALSE}
+# automatically create a bib database for R packages
+library(dplyr)
+library(tidyverse)
+library(DT)
+library(readr)
+library(reticulate)
+library(kableExtra)
+library(DT)
+# knitr::opts_chunk$set(echo=F, 
+#                       include=F,
+#                       eval=F)
+knitr::write_bib(c(.packages(), 
+                   'bookdown', 
+                   'knitr', 
+                   'rmarkdown'), 
+                 'packages.bib')
+```
+
+
+
+### How to Access {#res-access}
+Respublica is the CHOP high performance cluster (HPC) where the lab stores all the raw and processed imaging data and associated statistical models, code, and analytical output. A thorough overview of using the Respublica can be found on the internal [CHOP wiki](https://wiki.chop.edu/spaces/RISUD/pages/261754457/Start+Here+What+is+HPC). 
+
+You can access Respublica on a CHOP device after activating the VPN. If it is the first time you've logged into Respublica, you will need to download Omnissa, the app to connect you to Respublica (this will only work on CHOP devices while on the VPN). To download Omnissa, go to [Beyond](beyond.chop.edu) and download the client. 
+![Omnissa client](images/omnissa-download.png)
+
+
+When you open the app, you'll login using your CHOP password. You will be brought to a homescreen where you'll open the RES-RHEL-RH9HPC server which will take you into Respublica! From there you can open a terminal which is where you will be curating data. 
+![omnissa-home](images/omnissa-home.png)
+
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>🔑 Note</strong></p>
+  <p>Since this is a virtual machine (VM), regular Copy/Paste shortcuts won't work. On a MacBook, you will need to use shift+control+C to copy and shift+control+V to Copy/Paste in Respublica. You won't be able to copy from the terminal on the VM to your local machine. </p>
+</div>
+
+
+
+If on a non-CHOP device, you can access Respublica 2 ways:   
+  1) through [Respublica On Demand](https://respublica-web2.research.chop.edu) or   
+  2) through the browser on [Beyond](beyond.chop.edu)       
+
+When on the browser, you won't be able to Copy/Paste things into the terminal at all. You also won't be able to copy or move files from Respublica to your local machine. Your best bet is probably to use Respublica on Demand and open an interactive VSCode session where you will be able to Copy/Paste between virtual and local machines. Then you can use the Files tab to download/upload between virtual and local machines.
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>🔑 Note</strong></p>
+  <p>We don't have admin privilages on Respublica so things like Docker and sudo commands will not work. </p>
+</div>
+
+
+## Environment Creation {#create-env}
+To be able to curate a dataset, you will need to setup a virtual environment that will contain packages needed to launch the process. 
+
+1. Install conda
+```{bash install-conda, include=T, eval=F}
+cd $HOME
+wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+
+source ~/miniconda3/etc/profile.d/conda.sh
+```
+
+2. Create `data-org` environment
+You will need to create the data-org environment using the default environment packages located here `/mnt/isilon/bgdlab_processing/Data/SLIP/dataorg-environment-2024.yml`
+```{bash create-env, include=T, eval=F}
+conda env create -f /mnt/isilon/bgdlab_processing/Data/SLIP/dataorg-environment-2024.yml
+conda activate data-org
+```
+
+Next we will need to setup git so that we can use datalad. You can run `git config --global --list` to check if you have already setup git. 
+![Output of checking git config](images/conda-list-ss.png)
+
+If you haven't already setup git, run the following commands, replacing the "John Doe" information with your own name and email.
+```{bash check-git, include=TRUE, eval=F}
+git config --global user.name "John Doe"
+git config --global user.email johndoe@example.com
+```
+
+3. Check package versions
+We will also check the versions of the packages in the conda environment we just created to ensure things loaded properly. 
+```{bash version-check, include=TRUE, eval=F}
+datalad --version
+git --version
+git-annex version
+```
+![Output of checking package versions](images/list-package-versions.png)
+
+
+Next check on python libraries by opening a python terminal. If there are installation errors, StackOverflow and Google are your best bet to a solution.
+```{bash py-check, include=T, eval=F}
+python
+import pandas as pd, datalad.api as dl
+exit()
+```
+![Output of checking python libraries versions](images/py-check-packages.png)
+
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>🔑 Note</strong></p>
+  <p>One of the most important things is package version control. Different versions of packages can prevent the curation process from running at all or produce difference in the same data curated with the same process but with different packages.</p>
+</div>
+
+
+If anything happens to your environment and packages upgrade or downgrade, errors like the one below can occur. This happens because the python version upgraded to 3.10 from 3.9.21.
+![Error resulting from wrong version of python](images/py-package-error.png)
+If this happens, you'll have to recreate the environment. Known things that will cause this is by installing Jupyter while the environment is active (or any package that requires a version of python more recent than 3.9.21)
+
+
+Now a few basic definitions
+
+## References {#refs}
+This resource is meant to explain the BGDLab's clinical imaging process, but not go in depth in all underlying systems and components of a clinical imaging or Linux based systems/job processing. The resources below are good to review to orient yourself to everything included in the following chapters
+
+* [MRI for Neuroscience](https://case.edu/med/neurology/NR/MRI%20Basics.htm)  
+* [Imaging Sequences](https://radiopaedia.org/articles/mri-sequences-overview?lang=us)  
+* [MR Physics](https://www2.psychology.uiowa.edu/classes/31231/Readings/0829_Functional%20Magnetic%20Resonance%20Imaging_Huettel_Ch5.pdf)  
+* [SLURM](https://slurm.schedmd.com)  
+* [BIDS](https://bids.neuroimaging.io)  
+* [datalad](https://docs.datalad.org/en/stable/index.html)  
+* [git](https://git-scm.com/docs)  
+
+### DICOM {#dicom}
+
+From [RADSOURCE](https://radsource.us/understanding-dicom-what-is-the-dicom-file-format/)
+
+> DICOM, or Digital Imaging and Communications in Medicine, is a standardized protocol used for managing, storing, printing, and transmitting information in medical imaging. This standard ensures that medical imaging devices from different manufacturers can communicate seamlessly, enabling efficient and accurate transfer of imaging data. In hospitals and clinics worldwide, DICOM is the backbone of medical imaging, crucial for maintaining a smooth and effective workflow. DICOM applies to images from a variety of medical equipment, from X-ray machines to ultrasound scanners and MRI equipment. All of those images are subject to the DICOM format. 
+
+![Structure of a dicom](images/Structure-of-a-DICOM-File.jpg)
+[List of DICOM metadata](https://www.dicomlibrary.com/dicom/sop/)
+
+### NifTI {#nifti}
+
+[The NIFTI file format](https://brainder.org/2012/09/23/the-nifti-file-format/)   
+A NIfTI (Neuroimaging Informatics Technology Initiative) is a data format for the storage of magnetic resonance imaging and other medical images.
+
+<!--chapter:end:index.Rmd-->
+
+# Setup to Curate {#beginning}
+To begin curation, you'll need to identify a dataset from the CHOP data deliveries page in [Notion](https://www.notion.so/14a44906035d808ea54fcd012ed978bd?v=14a44906035d8037a337000c262795a2&source=copy_link). This walkthrough will use a small version of the 2025-04 monthly request. 
+
+Once you identify a dataset, you'll need to look for which directory the DICOMs were delivered to. This may be in the `TRiG Batch` column already but if it's not, you can run the `setup` command outlined in the following chapter to see which directory most of your dicoms are in.
+
+
+# Initialization {#initialization}
+
+The first step on Respublica will be to initialize your directory, meaning you'll clone the containerized data-org repo to copy over scripts to run on Respublica. 
+
+Start with an empty directory (named for the monthly request you're working on, in this example **mydataset**) and create a sub-directory called `code` to hold all the scripts and output tables throughout the curation process.
+
+
+```{bash create-empty-dirs, include=T, eval=F}
+cd /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/
+mkdir mydataset
+cd mydataset
+mkdir code
+cd code
+```
+
+The curation process was containerized using Docker to ensure reproducibility and package/library version control. [GitHub](https://github.com/BGDlab/dataorg-container)
+
+To initialize your directory, run the following command to clone the internal repo within the clin-dataorg container
+
+```{bash initialize, include=T, eval=F}
+export SIMG="/mnt/isilon/bgdlab_processing/code/containers/clin-dataorg-0.0.2.sif"
+singularity run -B $PWD $SIMG python /app/scripts/initialize.py $PWD
+```
+![Output of initialize](images/initialize-cmd.png)
+
+
+
+## Output
+You should now have 6 scripts in your directory:   
+1. `array-launcher.sh` used to launch an array of SLURM jobs by subject (if subject has multiple sessions they are run one by one.)   
+2. `batch-cubids-combine.sh` used to speed up the CuBIDS process by splitting the dataset into relatively equal chunks and running the final CuBIDS command on each distinct chunk   
+3. `cubids-apply.sh` used to run CuBIDS renaming   
+4. `data-bidsify.py` used to bidsify data using [HeuDiConv](https://heudiconv.readthedocs.io/en/v1.3.1/) and write to a logfile the output   
+5. `run-clin-dataorg.py` used to launch dataset commands to bidsify a dataset, clean up intermediary processing files and run CuBIDS, post-CuBIDS dataset cleaning and updating, and dataset annotation. Also contains functions to check the status of SLURM jobs for an entire dataset   
+6. `run-cubids-prep.sh` used to run the preparatory CuBIDS commands   
+
+# Main CLI Reference {#cli}
+The majority of the curation process is launched using a single script, `run-clin-dataorg.py`. This script acts as a launching pad for the various tasks needed to curate data: bidsification, running cubids, dataset annotation, SLURM job monitoring, etc. 
+```
+usage: python run-clin-dataorg.py 
+								 [-h]   
+								 [WORK_DIR]   
+								 [CMD {setup, bidsify, cubids, cubids-prep,    
+											 cubids-apply, post-cubids, annotate}]   
+								 [-b BASE_DIR]    
+								 [-n DATASET_NAME]   
+								 [-d DICOMS]   
+								 [-m MANIFEST]   
+								 [-p PATTERN]   
+								 [-mm CUBIDS_FULL_CMD]   
+								 [-j]   
+```
+
+## Positional Arguments
+- `WORK_DIR`   
+    - Directory where processing output tables and files will be, **when organizing multiple datasets, this location must be unique otherwise files will be overwritten**   
+- `CMD`   
+    - Command to run based on stage in organizational process.   
+        - To setup and bidsify, *bidsify*   
+        - To run cubids’ commands, *cubids*   
+        - To perform post-cubids corrections, *post-cubids*   
+        - To annotate (add participants files and README), *annotate*   
+        - To just check to see what was actually delivered, *setup*   
+        - To just run cubids-prep steps (update sidecars, group, and scan identification), *cubids-prep*   
+        - To just run cubids apply, *cubids-apply*   
+        
+## Named Arguments
+- `-b, --base-dir`   
+    - Base directory where the new dataset will be created. Defaults to */mnt/isilon/bgdlab_processing/Data/SLIP*.
+- `-n, --dataset-name`   
+    - Name of dataset to create. If a directory exists with the dataset name under the base directory, user is prompted to continue with the assumption that it is OK to overwrite what is in the existing directory   
+- `-d, --dicoms`   
+    - Path to directory where dicoms were delivered. Expecting directories like *HM2GVG2LJ_189078808765_3001*   
+- `-m, --manifest`   
+    - Path to the request manifest table   
+s- `-p, --pattern`   
+    - Regex pattern of subject ID. Defaults to *HM[0-9]+*   
+- `-mm, --cubids-full-cmd`   
+    - Path to the cubids apply bash script where files are renamed, usually `run02_full_cmd.sh`     
+- `-j, --job-summary`   
+    - Flag to check job status   
+    
+
+<!--chapter:end:01-intro.Rmd-->
+
+# Bidsify {#bids}
+
+The first step in the actual curation process that uses the raw imaging data involves using [HeuDiConv](https://heudiconv.readthedocs.io/en/v1.3.1/) to convert DICOMs to NifTI. **Throughout this entire process, your data-org environment should be activated and you should be at the top level directory you created unless otherwise specified**
+   
+## Main Command {#bids-cmd} 
+
+### Arguments {#bidsify-args}
+  - `WORK_DIR` corresponds to the path to the directory we initialized in the intro. 
+  - `CMD` corresponds to the action we want to execute:
+    - `setup` preps the dataset for curation by identifying data from the manifest that is on Respublica at the path(s) specified by the `-d` flag
+    - `bidsify` does the setup step before launching bidsify jobs. If the setup step was alerady run, then it just launches the bidsify jobs. 
+  - `BASE_DIR` corresponds to the top directory of the path we initially created that holds our dataset. In this walkthrough, we created `/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset` to hold the code for the curation process and the output. For regular SLIP deliveries, this argument defaults to the main SLIP path `/mnt/isilon/bgdlab_processing/Data/SLIP` since curated SLIP datasets are expected to be underneath this directory like the following dataset:   
+  
+```
+📁 Data
+  └── 📁 SLIP
+    ├── 📁 scit605_2025_01
+    ├── 📁 scit605_2025_02
+    ├── 📁 scit605_2025_03
+```
+  - `DATASET_NAME` will be _mydataset_ for this example. Typically for SLIP data from scit-605 lab, it is named for the monthly request you're organizing. For example if you're working on the 2026-06 request, the directory you would make is _scit605_2026_06_   
+  - `DICOMS` will be the path(s) to the raw dicoms in the 22q11 fileshare. You can find this from the CHOP Data Deliveries Notion page in the `TriGBatch` column. For this example we are using the 2025-04 request which is included in batch 20 so the path is `/mnt/isilon/22q11/projects/scit605_batch_20`. You can also pass multiple paths in a comma seperated list(no spaces) to this argument 
+  - `MANIFEST` is the request submitted to CHOP for imaging data including information on the scan. For regular SLIP request, these tables are at `/mnt/isilon/bgdlab_processing/Data/SLIP/request_manifests` with a standard naming convetion based on the year of the request such as _2025_04_requested_sessions_with_metadata.csv_. We will use a truncated version of that table for this example with 50 random sessions. Necessary columns for curation:   
+    - `request_label` a label that denotes which dataset the data belongs to (2025-04 in this example)   
+    - `pat_id`   
+    - `proc_ord_id`   
+    - `proc_ord_age`   
+    - `sex`   
+    - `race`   
+    - `ethnicity`   
+    - `birth_weight_kg`   
+    - `birth_length_cm`  
+
+### `bidsify` {#bidsify-cmd-1}
+To run the first active curation step, you can just launch the `bidsify` command. Or in the section below you can just launch the `setup` command to identify what data you have on Respublica first and afterwards run this command. 
+
+
+Before running, you can set your variables globally, or just specify them every time you run a command. To set them globally and run the bidsification step:
+```{bash bidsify-1, eval=F, include=T}
+cd $WORK_DIR
+
+export BASE_DIR="/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation"
+export DATASET_NAME="mydataset"
+export DICOMS="/mnt/isilon/22q11/projects/scit605_batch_20"
+export MANIFEST="/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/manifest_50.csv"
+
+python run-clin-dataorg.py $PWD bidsify -b $BASE_DIR -n $DATASET_NAME -d $DICOMS -m $MANIFEST
+```
+
+For the `-d` argument, you can pass a list of directories, `-d $DICOMS,$DICOM2` or   
+set your `$DICOM` variable as `export DICOMS="/mnt/isilon/22q11/projects/scit605_batch_20,/mnt/isilon/22q11/projects/scit605_batch_21"`
+
+or specify them each time: 
+```{bash bidsify-2, eval=F, include=T}
+python run-clin-dataorg.py $PWD \
+  bidsify \
+  -b /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation \
+  -n mydataset \
+  -d /mnt/isilon/22q11/projects/scit605_batch_20 \
+  -m /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/manifest_50.csv
+
+```
+
+### `setup` {#setup-cmd}
+```{bash setup-cmd, eval=F}
+python run-clin-dataorg.py $PWD \
+  setup \
+  -b $BASE_DIR \
+  -n $DATASET_NAME \
+  -d $DICOMS \
+  -m $MANIFEST
+```
+
+
+### Check Job Status {#check-stat}
+Once you start running command, you can check the status of your jobs and update the job tracker `curation_job_summary.tsv` by running: 
+```{bash bids-status, include=T, eval=F}
+python run-clin-dataorg.py $PWD bidsify -j
+```
+![Output of checking bidsify job statuses](images/bids-job-status.png)
+
+
+Now we'll go through the output of this step in depth to include the terminal command output, output files/directories, and debugging
+
+
+## Bidsify Output {#bids-out}
+
+## Command Output
+After running `bidsify` or `setup` command, you may be prompted to double check the output directory to ensure nothing will be overwritten. As shown below, there is only the `code` directory which holds the curation scripts. You can hit enter in the terminal to continue.
+```{r bidsify-1-output, eval=T, echo=F}
+cat(list.dirs("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/show_n_tell/",
+          full.names = FALSE)[grepl("[A-z]+",
+                                    list.dirs("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/show_n_tell/",
+                                              full.names = FALSE))])
+```
+![Output from running bidsify command prompting user to review output directory](images/bidsify-1.png){#id .class width=100% height=100%}
+
+
+Next after either `bidsify` or `setup`, the output will describe the data that has been located based on what was included in the manifest. 
+![Output from running bidsify command describing the rawdata delivered](images/bidsify-2.png){#id .class width=100% height=100%}
+
+
+We can see that a singularity command was run such that the active curation is only ever occurring inside the container. Out of the 50 sessions, data for 38 sessions was found in the specified `$DICOMS` path. 
+
+---
+If you just ran the `setup` command this would be the end of your output. If you just ran the `bidsify` command, you can expect the following output. Thus, if you ran the `bidsify` command after separately running the `setup` command, you would only get the following output. 
+
+
+Next the main datasets that will hold edited rawdata (DICOMs) and BIDSified data (NifTI) are created. Edited DICOMs are held in `sourcedata` directory and BIDSified data in the `BIDS` directory.
+![Output from running bidsify command creating datatlad datasets actively](images/bidsify-2.5.png){#id .class width=100% height=100%}
+
+
+![Output from running bidsify command creating datalad datasets](images/bidsify-3.png){#id .class width=100% height=100%}
+
+
+Then SLURM jobs are launched for each subject to bidsify.
+
+
+![Output from running bidsify command launching SLURM jobs](images/bidsify-4.png){#id .class width=100% height=100%}
+
+
+SLURM jobs are launched using an array based on subject. When subjects' have multiple sessions, each session is curated in succession within a single job. Thus the number of jobs launched ≠ the number of sessions, instead jobs launched = the number of subjects. 
+
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>💡 Tip</strong></p>
+  <p>Use `watch squeue -u $CHOP_USRNAME` to keep an eye on your active SLURM jobs. Statuses update every 2 seconds.</p>
+</div>
+
+
+## Full Directory Tree After Bidsify {#tree-aft-bids}
+```
+📁 mydataset
+  ├── 📁 code
+    ├── 📄 array_launcher.sh
+    ├── 📄 base_config.csv
+    ├── 📄 batch-cubids-combine.sh
+    ├── 📄 cubids-apply.sh
+    ├── 📄 curation_job_summary.tsv
+    ├── 📄 data-bidsify.py
+    ├── 📄 run-clin-dataorg.py
+    ├── 📄 run-cubids-prep.sh
+    ├── 📁 logs
+      ├── 📁 curation
+        └── 📄 curate-<jobid>_<arrayid>.out
+      ├── 📁 heudiconv
+        ├── 📄 bidsify_<subject>_<session-name>.txt
+        └── 📄 <subject>_heudiconv_perform.tsv
+  ├── 📁 BIDS
+    ├── 📄 .bidsignore
+    ├── 📁 .datalad
+    ├── 📁 .git
+    ├── 📄 .gitattributes
+    ├── 📄 .gitignore
+    ├── 📁 .heudiconv
+      └── 📁 HM2MOR40C
+        └── 📁 ses-499739009000procId004921ageDays
+          └── 📁 info
+            ├── 📄 dicominfo_ses-499739009000procId004921ageDays.tsv
+            ├── 📄 filegroup_ses-499739009000procId004921ageDays.tsv
+            ├── 📄 HM2MOR40C_ses-499739009000procId004921ageDays.auto.txt
+            ├── 📄 HM2MOR40C_ses-499739009000procId004921ageDays.edit.txt
+    ├── 📄 README
+    ├── 📄 scans.json
+    ├── 📄 participants.tsv
+    ├── 📄 participants.json
+    ├── 📄 dataset_description.json
+    ├── 📄 CHANGES
+    ├── 📁 sub-HM2MOR40C
+      ├── 📁 .datalad
+      ├── 📁 .git
+      ├── 📄 .gitmodules
+      ├── 📄 .gitattributes
+      ├── 📁 ses-499739009000procId004921ageDays
+        ├── 📁 .datalad
+        ├── 📁 .git
+        ├── 📄 .gitmodules
+        ├── 📄 .gitattributes
+        ├── 📁 anat
+          └── 🧠 sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-002_T2w.nii.gz
+          └── 📄 sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-002_T2w.json
+        ├── 📄 sub-HM2MOR40C_ses-499739009000procId004921ageDays_scans.tsv
+  ├── 📁 sourcedata
+    ├── 📁 .datalad
+    ├── 📁 .git
+    ├── 📄 .gitattributes
+    ├── 📁 HM2MOR40C
+      ├── 📁 .datalad
+      ├── 📁 .git
+      ├── 📄 .gitattributes
+      ├── 📄 .gitmodules
+      ├── 📁 499739009000procId004921ageDays
+        ├── 📁 .datalad
+        ├── 📁 .git
+        ├── 📄 .gitattributes
+        ├── 📄 dcm2niix_config.json
+        ├── 📄 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d.zip
+        ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d
+          ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d
+            ├── 📁 STUDY
+              ├── 📁 set_1
+                └── 📄 MR00000.dcm
+              ├── 📁 set_2
+              ├── 📁 set_3
+              ├── 📁 set_4
+              ├── 📁 set_5
+              ├── 📁 set_6
+              ├── 📁 set_7
+              ├── 📁 set_8
+              ├── 📁 set_9
+              ├── 📁 set_10
+              ├── 📁 set_11
+              ├── 📁 set_12
+              ├── 📁 set_13
+              ├── 📁 set_14
+              ├── 📁 set_15
+              ├── 📁 set_16
+              ├── 📁 set_17
+              ├── 📁 set_18
+              ├── 📁 set_19
+              ├── 📁 set_20
+              └── 📁 set_21
+  └── 📁 problematic_scans
+```
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>🧠 Note</strong></p>
+  <p>Don't expect the number of DICOM series here to correspond to the number of output NifTIs. This is because we only want to use structural and diffusion brain images. Sometimes we get other body parts (i.e. heart) or we get scans of other modalities (i.e. MRA) that we ignore/don't convert based on the filters in our HeuDiConv heuristic </p>
+</div>
+
+
+## Output Files {#bids-output}
+### 1. `base_config.csv` {.unnumbered #base-config}
+Output from this stage is a table within your `$WORK_DIR` listing the information for each session by subject. 
+```{r base-config, eval=T, echo=F, fig.cap="Base config"}
+DT::datatable(read.csv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/base_config.csv") |>
+               arrange(pat_id),
+             filter = list(position = "top",
+                           settings = list(select = list(maxOptions = 10))),
+             caption = "Base Config Used to Run HeuDiConv SLURM Jobs",
+         options = list(scrollX = '300px'))
+
+```
+
+
+### 2. `curation_job_summary.tsv` {.unnumbered #cur-tsv}
+Table that is used to store the status of each SLURM job you launched.
+```{r cur-job-summary, eval=T, echo=F, fig.cap="Curation job summary"}
+DT::datatable(read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/curation_job_summary.tsv",
+                      show_col_types = FALSE) |>
+               arrange(pat_id),
+  filter = list(position = "top",
+                settings = list(select = list(maxOptions = 10))),
+  caption = "Curation Job Summary",
+  options = list(scrollX = '300px'))
+```
+
+
+### 3. `sourcedata` {.unnumbered #sourcedata}
+Directory containing edited DICOMs. The original raw data is either compressed into a single ZIP file at the specified `$DICOMS` path or as a directory. Paths are nested such that (the first subdirectory is a result of the GCP deidentification process in data delivered via GCP), then the subsequent directory is the DICOM 'Study', and then the DICOM 'Series' featuring individual DICOM 'instances' (basically slices of the brain from the end of one axis to another).[^1]
+
+[^1]: This [source](https://towardsdatascience.com/understanding-dicom-bce665e62b72/) can help you understand the structure of a DICOM directory.
+
+
+An example session delivered via GCP
+```
+📁 /mnt/isilon/22q11/projects/scit605_batch_19/HM3JE4QTC_307326634746_577  
+  ├── 📁 GCPDicom_deid_uuid_69ecda2e-d2d87192-a9e6efab-38468865-d1869b98  
+    ├── 📁 1.3.6.1.4.1.11129.5.1.320095716370311217869815258082494720144  
+      ├── 📁 1.3.6.1.4.1.11129.5.1.110467961722322632112251159407706174818  
+        └── 📄 1.3.6.1.4.1.11129.5.1.214251349795671109240889002528357517753.dcm
+```
+
+
+Our working example session delivered via OnPrem
+```
+📁 /mnt/isilon/22q11/projects/scit605_batch_20/HM2MOR40C_499739009000_4921  
+  ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d.zip
+```
+
+
+Here is an example subject's `sourcedata` tree.
+```
+📁 sourcedata/HM2MOR40C_499739009000_4921  
+  ├── 📁 .datalad
+  ├── 📁 .git
+  ├── 📄 .gitattributes
+  ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d.zip
+  ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d  
+    ├── 📁 STUDY 
+      ├── 📁 'MR ANTERIOR'  
+        └── 📄 MR00000.dcm
+      ├── 📁 'MR asl_3d_tra_fast'  
+      ├── 📁 'MR AX'  
+      ├── 📁 'MR AX-2'  
+      ├── 📁 'MR AX MPR'  
+      ├── 📁 'MR BASILAR'  
+      ├── 📁 'MR COR'  
+      ├── 📁 'MR COR2'  
+      ├── 📁 'MR localizer'  
+      ├── 📁 'MR relCBF_GREY MOSAIC'  
+      ├── 📁 'MR resolve_4scan_trace_tra_p2_s2_224_ADC'  
+      ├── 📁 'MR resolve_4scan_trace_tra_p2_s2_224_TRACEW'  
+      ├── 📁 'MR t1_mprage_sag_p2_iso_0.9'  
+      ├── 📁 'MR t2_tirm_tra_darkfluid'  
+      ├── 📁 'MR t2_tse_cor s2'  
+      ├── 📁 'MR t2_tse_tra'  
+      ├── 📁 'MR TOF_3D_multislab brain MRA_cs_4.4'
+      ├── 📁 'MR TOF_3D_multislab brain MRA_cs_4.4_MIP_COR'
+      ├── 📁 'MR TOF_3D_multislab brain MRA_cs_4.4_MIP_Radials'
+      ├── 📁 'MR TOF_3D_multislab brain MRA_cs_4.4_MIP_SAG'
+      ├── 📁 'MR TOF_3D_multislab brain MRA_cs_4.4_MIP_SAG'
+      └── 📁 'MR TOF_3D_multislab brain MRA_cs_4.4_MIP_TRA'  
+```
+
+edited `sourcedata`
+
+```
+📁 sourcedata
+  ├── 📁 .datalad
+  ├── 📁 .git
+  ├── 📄 .gitattributes
+  ├── 📁 HM2MOR40C
+    ├── 📁 .datalad
+    ├── 📁 .git
+    ├── 📄 .gitattributes
+    ├── 📄 .gitmodules
+    ├── 📁 499739009000procId004921ageDays
+      ├── 📁 .datalad
+      ├── 📁 .git
+      ├── 📄 .gitattributes
+      ├── 📄 dcm2niix_config.json
+      ├── 📄 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d.zip
+      ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d
+        ├── 📁 uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d
+          ├── 📁 STUDY
+            ├── 📁 set_1
+              └── 📄 MR00000.dcm
+            ├── 📁 set_2
+            ├── 📁 set_3
+            ├── 📁 set_4
+            ├── 📁 set_5
+            ├── 📁 set_6
+            ├── 📁 set_7
+            ├── 📁 set_8
+            ├── 📁 set_9
+            ├── 📁 set_10
+            ├── 📁 set_11
+            ├── 📁 set_12
+            ├── 📁 set_13
+            ├── 📁 set_14
+            ├── 📁 set_15
+            ├── 📁 set_16
+            ├── 📁 set_17
+            ├── 📁 set_18
+            ├── 📁 set_19
+            ├── 📁 set_20
+            └── 📁 set_21
+```
+
+  
+
+This rawdata is:  
+  1. copied over to the new `sourcedata` session specific directory for each subject (if it's a ZIP file it is) unzipped  
+  2. names of the extracted directories edited to remove the spaces within the original names (spaces in filenames/directories are a No-No for linux!)  
+  3. decompressed within the container using Singularity  
+  4. metadata/SOP tags[^2]  
+
+  [^2]: Metadata fields associated with each DICOM redacted to avoid downstream complications
+
+
+### 4. `BIDS` {.unnumbered #bids-outputdir}
+NifTIs made from `sourcedata` DICOMs along with standard BIDS accessory files. Each subject has their own directory, under which are session directories and finally modality specific (anat or dwi) directories.  The `<subject-id>_<session-id>_scans.tsv>` tables feature the filename(s) of the scans included in the session. The BIDS accessory files include: README, CHANGES, participants.json, participants.tsv, dataset_description.json, and scans.json. Please read the [BIDS documentation](https://bids-specification.readthedocs.io/en/stable/introduction.html) to understand these files. 
+
+
+### 5. `problematic_scans` {.unnumbered #prob-scans}
+This directory contains data that either didn't successfully convert to NifTI or converted data couldn't be appropriately named with the current configuration. An example:
+```
+📁 sub-HMFFKF48
+  ├── 📁 ses-41154758323procId000317ageDays
+    ├── 📁 anat
+      ├── 📄 sub-HMFFKF48_ses-41154758323procId000317ageDays_acq-TSE_rec-NORM_run-001_T2w1.json
+      ├── 🧠 sub-HMFFKF48_ses-41154758323procId000317ageDays_acq-TSE_rec-NORM_run-001_T2w1.nii.gz
+      ├── 📄 sub-HMFFKF48_ses-41154758323procId000317ageDays_acq-TSE_rec-NORM_run-001_T2w2.json
+      └── 🧠 sub-HMFFKF48_ses-41154758323procId000317ageDays_acq-TSE_rec-NORM_run-001_T2w2.nii.gz
+```
+The issue here is that these scans were given the exact same name by our heuristic through HeuDiConv processing so to prevent overwriting, they were given a numbered suffix which isn't BIDS compliant. Unsure why this happens, but the files do indeed differ when we check:
+```{bash check-file-diff, eval=F, include=T}
+
+diff /mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/problematic_scans/sub-HMFFKF48/ses-41154758323procId000317ageDays/anat/sub-HMFFKF48_ses-41154758323procId000317ageDays_acq-TSE_rec-NORM_run-001_T2w1.nii.gz /mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/problematic_scans/sub-HMFFKF48/ses-41154758323procId000317ageDays/anat/sub-HMFFKF48_ses-41154758323procId000317ageDays_acq-TSE_rec-NORM_run-001_T2w2.nii.gz
+```
+![Binary files differ](images/file_diff.png)
+so this is why these scans were moved out of the BIDS directory. 
+
+
+### 6. Hidden Files and Directories {.unnumbered #hidden-dirs}
+
+#### .heudiconv {-}
+The output of HeuDiConv processing includes a table `<pat_id>/<session_id>/info/dicominfo_<session_id>.tsv` with all the metadata for each DICOM series that are used to heuristically label scans. 
+
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>⚠️ Tip</strong></p>
+  <p>If this file exists prior to running the bidsify jobs, HeuDiConv will use the existing table instead of creating a new one so if you need to relaunch a bidsify job manually, you'll need to remove the specific session dicominfo table </p>
+</div>
+
+
+#### .git, .datalad, .gitattributes, .gitmodules {-}
+Since we are using datalad for data provenance, there will be hidden directories and files that are made to enable this. See the [datalad docs](https://docs.datalad.org/en/stable/index.html) for more explanations on how datalad works and the purpose/utility of these files and directories.
+
+#### .bidsignore {-}
+This file is output after running HeuDiConv and is used primarily for running [BIDs apps](https://bids.neuroimaging.io//tools/bids-apps.html). You would add a regex pattern or exact relative filepath/filename for data you want your BIDs app to ignore. 
+
+### 7. HeuDiConv run tracker {-}
+Our heuristic file adds run number via an incremental process that uses a text file to keep track of unique filenames. When there are numerous of similar filenames, the run number is incremented by 1. This file is kept in a completely different directory and is deleted once you run the `cubids` or `cubids-prep` steps. 
+
+```
+📁 Data
+  ├── 📁 tmp_heudiconv
+    └── HM2MOR40C_499739009000_4921_501679.txt
+```
+In the above file:
+```{r show-run-tracker, eval=T, echo=F, message=F}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/HM2MOR40C_499739009000_4921_501679.txt")
+```
+
+
+Here there are 2 DICOM series that were labelled by our heuristic as "acq-TSE_rec-DIS2D_T2w". The first instance will be named like _acq-TSE_rec-DIS2D_T2w_run-001_ while the next instance will be _acq-TSE_rec-DIS2D_T2w_run-002_. HeuDiConv has their own method of incrementing runs for similarly named files but I found it to be unreliable. This could have been fixed in newer versions of HeuDiConv (dataorg container uses version 1.3.1) but I haven't tried them out. We expect that HeuDiConv is following the order that the series' were acquired in such that any _run-001_ is occurring before _run-002_ for the same acqusition types but **haven't officially checked**. This could be something to verify in the future. From the [HeuDiConv docs](https://heudiconv.readthedocs.io/en/latest/api/dicoms.html), the below DICOM metadata is used to order series, but in our data these fields are usually redacted/removed during the de-identification process.   
+
+
+>The following fields are checked in order
+>
+AcquisitionDate & AcquisitionTime (0008,0022); (0008,0032)
+AcquisitionDateTime (0008,002A);
+SeriesDate & SeriesTime (0008,0021); (0008,0031)
+
+So this will be a mystery to solve! (In reality you could probably open a few sessions in NilRead and compare with the dicominfo table to see if the order of SeriesDescriptions are the same)  
+
+
+## Logs {#bids-logs}
+Since we are launching SLURM jobs, we are writing job output to a `logs` directory underneath the specified `WORK_DIR`. Within the `logs` directory are 2 subdirectories with logs for the bidsify jobs (`curation`) and then another one for the heudiconv command output (`heudiconv`).  
+
+### curation logs {.unnumbered #cur-logs}
+Curation logs for our example:
+```{css, echo=FALSE}
+.scroll-100 {
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: inherit;
+}
+```
+
+```{r cat-curation-log, eval=T, echo=F, class.output="scroll-100"}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/logs/curation/curate-1004783_10.out")
+```
+
+
+### heudiconv logs {.unnumbered #heudi-logs}
+heudiconv logs for our example `logs/heudiconv/bidsify_HM2MOR40C_499739009000procId004921ageDays.txt` with the output from the singularity command to run HeuDiConv inside the data-org container:
+
+
+```{r cat-cur-logs, echo=F, eval=T, class.output="scroll-100"}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/logs/heudiconv/bidsify_HM2MOR40C_499739009000procId004921ageDays.txt")
+```
+
+Also in this directory are subject specific heudiconv performance review tables. `logs/heudiconv/HM2MOR40C_heudiconv_perform.tsv`
+```{r subject-heudiconv-perform-tables, eval=T, echo=F, fig.cap='HeuDiConv performance'}
+DT::datatable(read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/HM2MOR40C_heudiconv_perform.tsv",
+         show_col_types = FALSE),
+          filter = list(position = "top",
+                           settings = list(select = list(maxOptions = 10))),
+         caption = "HeuDiConv Performance Table",
+         options = list(scrollX = '300px'))
+```
+Where the columns represent:   
+  - **subject_id**   
+  - **session_id**   
+  - **expected_output** number of series in the `sourcedata` session directory   
+  - **actual_output** number of series evaluated by HeuDiConv, extracted output log (line 4 in from the above log "INFO: Generated sequence info for 1 studies with 20 entries total")   
+  - **expected_anat_scans** number of expected anatomical modality scans based on the number of instances of "{bids_subject_session_dir}/anat" in the log (e.g. line 115)   
+  - **actual_anat_scans** number of NifTIs output in the `BIDS/<subject-id>/<session-id>/anat` directory   
+  - **expected_dwi_scans** number of expected anatomical modality scans based on the number of instances of "{bids_subject_session_dir}/dwi" in the log   
+  - **actual_dwi_scans** number of NifTIs output in the `BIDS/<subject-id>/<session-id>/dwi` directory   
+  - **first_run** if/else the _expected_output_ == _actual_output_. If equal, 'success'. If not equal, 'missed'   
+  - **final_run** if/else the _expected_output_ == _actual_output_ after relaunching. If equal, 'success'. If not equal, 'missed'   
+
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>🔑 Note</strong></p>
+  <p>These subject specific heudiconv performance review table will be concatenated into a larger 'heudiconv_performance.tsv' table. </p>
+</div>
+
+
+
+## An Explanation of HeuDiConv
+Edited DICOMs from `sourcedata` are funneled through HeuDiConv to get converted to NifTI. HeuDiconv uses a custom [heuristic](https://github.com/BGDlab/dataorg-container/blob/main/scripts/heuristic.py) that looks at the DICOM metadata to name scans and outputs a table containing information on each series (the .heudiconv dicominfo table). The custom heuristic also uses custom dictionaries based on input from CHOP's head radiologist Arastoo Voussough to aid in labeling scans appropriately: [modality dictionary](https://github.com/BGDlab/dataorg-container/blob/main/scripts/mod_dict.json), [label dictionary](https://github.com/BGDlab/dataorg-container/blob/main/scripts/label_dict.json), [acqusition dictionary](https://github.com/BGDlab/dataorg-container/blob/main/scripts/acq_dict.json). These should be updated periodically based on CHOP's continued expansion. 
+
+We run HeuDiConv within the data-org container to maintain reproducibility and because we needed to fix issues in the HeuDiConv package. See the container maintenance page for more information. To do so, we run this singularity command:
+```
+usage: singularity run -e -C -B /mnt/isilon/bgdlab_processing/ \
+              --env 'HEUDICONV_FILELOCK_TIMEOUT=45' \
+              /mnt/isilon/bgdlab_processing/code/containers/clin-dataorg-0.0.2.sif \
+              heudiconv \
+              [--files $DICOM_STUDY] \
+              [-o $BIDS] \
+              [-f /app/scripts/heuristic.py] \
+              [-s $PAT_ID] \
+              [-ss $SES_NAME] \
+              [-c dcm2niix] \
+              [--dcmconfig $DCMCONFIG -b 2>&1 | tee $LOG_OUTPUT]
+```
+
+### HeuDiConv Arguments
+
+- `DICOM_STUDY` path to the DICOM study, format `/SOURCEDATA/SUBJECT/SES-NAME/../DICOM-STUDY`
+- `BIDS` path to BIDS
+- `PAT_ID` subject identifier
+- `SES_NAME` session identifier, example: 255522594163procId002987ageDays
+- `DCMCONFIG` path to the dcm2niix command config, format `/SOURCEDATA/SUBJECT/SES-NAME/dcm2niix_config.json`
+- `LOG_OUTPUT` path to the heudiconv log output, format `/LOGS/heudiconv/bidsify_SUBJECT_SES-NAME.txt`
+
+### HeuDiConv Output
+Now we will show the HeuDiConv output from our example:
+```{r heudiconv-info-table, eval=T, echo=F, message=F, fig.cap="Incomplete HeuDiConv dicom info table"}
+DT::datatable(read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/.heudiconv/HM2MOR40C/ses-499739009000procId004921ageDays/info/dicominfo_ses-499739009000procId004921ageDays.tsv"),
+              filter = list(position = "top",
+                           settings = list(select = list(maxOptions = 10))),
+              caption = "Dicom Info Table",
+              options = list(scrollX = '300px'))
+```
+
+Because HeuDiConv was relaunched for this subject/session, the HeuDiconv info table is incomplete. We can refer back to the \@ref(fig:subject-heudiconv-perform-tables) for this subject/session to see why
+
+
+
+We can see that there were 21 expected series to review, but only 20 were initially registered through HeuDiConv. Due to this, the script will remove the output and run HeuDiConv again. In the next section we'll go through our logs to understand what happened.
+
+
+## Debugging 🐞
+In our example, HeuDiConv relaunched due to a failure to register all the available DICOM series. To understand what this means, you can copy the HeuDiConv singularity command from the logs (check the `curation_job_summary.tsv` to find which logfile it's in, this example is in `curate-1004783_10.out`), edit it so that the output goes into a separate directory where you can review the output, and then run it in the terminal.
+```{bash heudiconv-singularity-cmd, include=T, eval=F}
+singularity run -e -C -B /mnt/isilon/bgdlab_processing/ --env 'HEUDICONV_FILELOCK_TIMEOUT=45' \
+  /mnt/isilon/bgdlab_processing/code/containers/clin-dataorg-0.0.2.sif \
+  heudiconv 
+  --files /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/sourcedata/HM2MOR40C/499739009000procId004921ageDays/uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d/uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d/STUDY \
+  -o /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/test \
+  -f /app/scripts/heuristic.py \
+  -s HM2MOR40C \
+  -ss 499739009000procId004921ageDays \
+  -c dcm2niix --dcmconfig /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/sourcedata/HM2MOR40C/499739009000procId004921ageDays/dcm2niix_config.json -b 2>&1 | tee /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/test/bidsify_HM2MOR40C_499739009000procId004921ageDays.txt
+```
+
+
+Once the command is run, we now can look at the complete HeuDiConv info file
+```{r info-table-2, eval=T, echo=F, fig.cap="Complete HeuDiConv dicom info table"}
+DT::datatable(read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/test/.heudiconv/HM2MOR40C/ses-499739009000procId004921ageDays/info/dicominfo_ses-499739009000procId004921ageDays.tsv",
+                     show_col_types = FALSE) |>
+              mutate(num = as.numeric(str_extract(dcm_dir_name, "[0-9]+"))) |>
+              arrange(num) |>
+              select(dcm_dir_name, series_id, series_files, 
+                      study_description, protocol_name, 
+                      series_description),
+  filter = list(position = "top",
+                           settings = list(select = list(maxOptions = 10))),
+         caption = "HeuDiConv Dicom Info",
+         options = list(scrollX = '300px'))
+```
+
+
+
+Now we have found the error! When running HeuDiConv initially, all but `set_2` was registered. As of Mar 2026 I'm not sure why this happens 😞. After relaunch, we successfully register all 21 sets, but since the relaunch process overwrites the HeuDiConv info table, we don't have proof there. But, we do have proof in the `bidsify_redo` logs for this subject/session! 
+
+
+First we look at one DICOM from `set_2` to see what the **SeriesDescription** is. 
+```{python load-dcm, eval=T}
+from pydicom import dcmread
+ds = dcmread("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/sourcedata/HM2MOR40C/499739009000procId004921ageDays/uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d/uuid_2ae84a22-7ce905a5-c78dce52-a28f84dd-69b3e92d/STUDY/set_16/MR000000.dcm")
+ds["SeriesDescription"]
+```
+
+
+Now we can look in the logs to see if the 'AX' series was registered
+```{bash trouble-1, eval=T}
+grep 'Description: ax' /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/logs/heudiconv/bidsify_redo_HM2MOR40C_499739009000procId004921ageDays.txt
+```
+
+
+Now we see that there are 2 instances of _Description: ax_ which corresponds to `set_2` and also `set_16`, so now we now for sure that the relaunch worked! In this example the relaunch isn't consequential - we don't convert those types of scans (MRA). But there isn't a way to predict which series HeuDiConv might fail to register, so if they failed to register an MPRAGE instead, that would be consequential for downstream analysis.
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>🔨 Feature Request</strong></p>
+  <p>Here we have our first feature request! There was a problem with the initial HeuDiConv run for sub-HM2MOR40C ses-499739009000procId004921ageDays such that all the the expected DICOM series were evaluated. Thus, the bidsify job was automatically relaunched, this time on a per series base (instead of per session base). When this happens, HeuDiConv is run once for each series, and the HeuDiConv output gets overwritten. Future iterations of the curation process should include a way to prevent this overwriting.</p>
+</div>
+
+## Saving Progress
+Now that we have finished the bidsfication step, we will need to manually save our dataset. Switch into the `BIDS` directory and run datalad save    
+`cd /mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS`   
+or since you should be in your `code` directory, you can use a positional argument to change directories `../B` then hit tab and the path should complete to `../BIDS`. This `../` mean to move one directory up. Use it multiple times to move multiple levels up, using tab completion to make sure your destination is actually there.  
+
+Now in your `BIDS` directory (with your data-org environment activated):
+
+💡 To speed this process up, you can open the `.gitignore` file, add _.heudiconv_ to it, save it, and then run below command.
+
+```{bash, eval=F, include=T}
+srun --time 12:00:00 --mem 5G datalad save -m 'Bidsification first pass' -J auto
+```
+Submitting it as an srun job ensures that the command isn't killed by the terminal for using too much memory. This happens when you have large datasets. Not sure the limit on what causes the crash (whether it be 100 sessions or 1500 sessions) so it's good to just always run this as an srun job. No way to predict how long it will take so usually good to just switch to another task and come back to the dataset later. 
+
+
+Now we continue to the next stage! ➡️ (or stay for BTS of the bidsification step)
+
+
+## Behind The Scenes {#bids-bts}
+Behind the scenes are 3 local scripts, 3 containerized scripts, and 2 containerized python packages
+
+### Local Scripts {#bids-local-scripts}
+#### `code/run-clin-dataorg.py` {-}
+  1. Runs `data_prep.py` within the container
+  2. Launches `code/data-bidsify.py`
+  3. Creates a SLURM job tracker `code/curation_job_summary.tsv`   
+  4. Updates the job tracker by running   
+  5. Concatenates output tables  
+
+#### `code/array_launcher.sh` {-}
+  1. Launches an array of SLURM jobs based on an input config  
+  
+#### `code/data-bidsify.py` {-}
+  1. Copies over dicoms from the rawdata path to a path where the data is safe to edit   
+  2. Edits the dicoms using `update_files.py` script within the container where dicoms are decompressed if they were JPEG compressed (CHOP had been compressing DICOMs that were delivered via Google Cloud Platform) for dicoms delivered through OnPrem services the DICOMS were not compressed, but to guarantee that we don't leave DICOMs compressed, this step is retained. It also blanks out so called "fragile tags" which are DICOM metadata fields that are known to cause issues with DICOM to NifTI conversion.  
+  3. Runs HeuDiConv on a given session with the `heuristic.py` script within the container. This package parses DICOM metadata to label the NifTI scans as appropriately as possible. 
+  4. Saves all changes to the datalad datasets (sourcedata and BIDS)   
+  
+  
+### Containerized Scripts {#bids-contain-scripts}
+  1. `update_files.py`  
+    - Decompress DICOMs and redacts some metadata fields  
+  2. `heuristic.py`  
+    - Custom heuristic that is used to label DICOM data converted to NifI using metadata filers  
+  3. `data_prep.py`   
+    - Identifies which sessions from the manifest were actually delivered to Respublica   
+    - Creates an output table listing the paths to the rawdata for each session  
+  
+### Containerized Python Packages {#bids-contain-packs}
+  1. HeuDiConv  
+    - Module that is used to convert DICOM to NiFTI using custom heuristics. The module `dcm2niix` does the active conversion while HeuDiConv is basically a wrapper that aggregates metadata, runs the conversion module, summarizes and tidies output. We have a modified version of HeuDiConv version 1.3.1.   
+  2. gdcmv  
+    - Module that decompresses DICOMs  
+
+  
+  
+
+
+
+<!--chapter:end:02-bidsify.Rmd-->
+
+# CuBIDS {#cubids}
+
+Now we will complete the 2nd stage of curation that involves grouping our data together to describe our scans in more detail. We are using a developmental version of [CuBIDS (v1.2.1.dev5+g0be1b9a26.d20250926)](https://cubids.readthedocs.io/en/1.2.0/) that we manually edited inside our data-org container to work specific for our lab! See the data-org maintanence page for more informaiton.
+
+In brief, CuBIDS aggregates scan metadata and groups them based on their similarities, allowing specified tolerance levels for numerical fields. For example, we allow a 0.05 second tolerance range for `RepetitionTime` such that 1 scan with a TR or 1.0 and another with TR of 1.05 grouped together. We set these tolerances in a [config file](https://github.com/BGDlab/dataorg-container/blob/main/scripts/config.yml) used in the command to run the `cubids group`. Further, we use the tables that CuBIDS outputs with the aggregated metadata to run a [custom scan identification script](https://github.com/BGDlab/dataorg-container/blob/main/scripts/identifyFilesFromCubids.py) based on the most common acquisitions from CHOP. With this we use very specific tolerance ranges and other string filters to identify scans as T1w, T2w, or FLAIR as well as the standard MPRAGE and others. 
+
+One way you can think about the utility of CuBIDS is through the recovery of un-identifiable scans that our heuristic in HeuDiConv fail to identify:
+
+```{python combine-cubids-tables, eval=T, message=F, include=F}
+import pandas as pd, os, glob, re
+
+dfList = []
+for tbl in glob.glob("/mnt/isilon/bgdlab_processing/Data/SLIP/scit605*/BIDS/code/CuBIDS/run01_summary_edited.tsv"):
+  df = pd.read_csv(tbl, sep="\t")
+  df['dataset'] = re.findall('scit605_[0-9]+_[0-9]+', tbl)[0]
+  dfList.append(df)
+  
+combo = pd.concat(dfList).reset_index()
+
+  
+```
+
+```{r recovered-scans, eval=T, include=F}
+combo <- py$combo
+
+recovered <- combo |>
+  filter(grepl("unknown", EntitySet) &
+           grepl("T1w|T2w|FLAIR|dwi", RenameEntitySet) &
+           ProtocolName != "AXIAL tse post gad") |>
+  select(ProtocolName, SeriesDescription, RenameEntitySet, Counts) |>
+  mutate(NewFilename = str_replace(RenameEntitySet, "acquisition","acq"),
+         NewFilename = str_replace(NewFilename, "suffix-",""),
+         NewFilename = str_remove(NewFilename, 'datatype-anat_')) |>
+  group_by(ProtocolName, SeriesDescription, NewFilename) |>
+  summarise(Scans = n()) |>
+  arrange(desc(ProtocolName)) 
+n_rec_scans = sum(recovered$Scans)
+str_glue("Overall, CuBIDS is able to recover {n_rec_scans} scans via CuBIDS.")
+```
+
+```{r rec-scans-tbl,eval=T, echo=F, message=F, fig.cap="Recovered scans from CuBIDS"}
+DT::datatable(recovered,
+              caption = "Random 10 Recovered Scans",
+              filter = list(position = "top",
+                           settings = list(select = list(maxOptions = 10))),
+              options = list(scrollX = '300px'))
+
+
+
+```
+
+## Main Command
+
+This command executes each substage of the CuBIDS process via one command. If at any point an individual command fails, an error message is output and processing stopped. 
+
+The first line sets up an interactive SLURM job (so we can see the output and be able to increase the memory and time needed) with a time limit of 12 hours and 8 GB of memory. The next line launches the `run-cubids-prep.sh` script. 
+
+```{bash main-cubids-cmd, eval=F}
+cd $WRKDIR
+srun --time 12:00:00 --mem 8G \
+  bash run-cubids-prep.sh $PWD $DATASET_NAME
+```
+Immediate output refers to the interactive SLURM job we launched.
+![](images/cubids-prep-out1.png)
+
+
+Next we can see the command launched for `cubids-prep` and the output of cleaning up the intermediate files from the bidsify step 
+![](images/cubids-prep-out2.png) 
+
+
+Next we will see the singularity command output that will run `cubids add-nifti-info` command inside the container. Also see some output from datalad concerning the unlocking of files to make and save changes to the dataset
+![](images/cubids-prep-out3.png)
+Following, we see the output of running `cubids group` with the singularity command output.
+![](images/cubids-prep-out4.png)
+
+Next, we see output for the scan identification step showing the singularity command and then the output of running the script.
+![](images/cubids-prep-out5.png)
+
+Finally we see the script submitting the command to run `cubids apply` as a separate SLURM job. 
+![](images/cubids-prep-out6.png)
+
+Since this example has less than 4000 scans, `cubids apply` is run as a single job. 
+
+
+
+## CuBIDS Stages {#cubids-stages}
+
+Now we will explain in more detail each step that the process went through. 
+
+### cubids add-nifit-info {#add-nifti-info}
+Here we are adding information to the NifTI sidecars (JSON). See CuBIDS documentation [cubids add-nifti-info](https://cubids.readthedocs.io/en/latest/cli.html#add-nifti-info) for more information.   
+We can see the shortened original version of one of the JSONs for scan    `BIDS/sub-HM2MOR40C/ses-499739009000procId004921ageDays/anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-MPRAGE_rec-DIS2D_run-001_T1w.nii.gz`
+
+
+```
+{
+  "AcquisitionMatrixPE": 256,
+  "AcquisitionNumber": 1,
+  "BodyPart": "BRAIN",
+  "ConversionSoftware": "dcm2niix",
+  "ConversionSoftwareVersion": "v1.0.20241211",
+  "DeviceSerialNumber": "176559",
+  "EchoTime": 0.00252,
+  "FlipAngle": 9,
+  "HeudiconvVersion": "1.3.1",
+  "ImageOrientationPatientDICOM": [0, 1, 0, 0.122442, 0, -0.992476],
+  "ImageType": [
+    "ORIGINAL",
+    "PRIMARY",
+    "M",
+    "NORM",
+    "DIS2D",
+    "MFSPLIT",
+    "MAGNITUDE"
+],
+  "ImagingFrequency": 123.261334,
+  "InPlanePhaseEncodingDirectionDICOM": "ROW",
+  "InstitutionAddress": "KOP Specialty Care Center 550 South Goddard Blvd KING OF PRUSSIA, PA 19406",
+  "InstitutionName": "KOPH SCC MRI",
+  "InversionTime": 0.9,
+  "MRAcquisitionType": "3D",
+  "MagneticFieldStrength": 3,
+  "Manufacturer": "Siemens",
+  "ManufacturersModelName": "MAGNETOM Vida",
+  "Modality": "MR",
+  "NonlinearGradientCorrection": true,
+  "PatientPosition": "HFS",
+  "PercentPhaseFOV": 100,
+  "PercentSampling": 100,
+  "PhaseEncodingSteps": 256,
+  "PixelBandwidth": 179,
+  "ProcedureStepDescription": "MR BRAIN W & W/O IV CONTRAST",
+  "ProtocolName": "t1_mprage_sag_p2_iso_0.9",
+  "ReconMatrixPE": 256,
+  "RepetitionTime": 1.9,
+  "SAR": 0.123027,
+  "ScanOptions": "PER",
+  "ScanningSequence": "GR",
+  "SequenceVariant": "SK",
+  "SeriesDescription": "t1_mprage_sag_p2_iso_0.9",
+  "SeriesNumber": 9,
+  "SliceThickness": 0.9,
+  "SoftwareVersions": "syngo MR XA50",
+  "StationName": "KOP MR2",
+  "StudyDescription": "MR BRAIN W & W/O IV CONTRAST",
+  "dcmmeta_affine": [
+    [0.8939999938011169, 0.0, 0.10522359609603882, -96.42701721191406],
+    [0.0, 0.859375, 0.0, -113.13762664794922],
+    [-0.11020000278949738, 0.0, 0.8529090881347656, -113.91870880126953],
+    [0.0, 0.0, 0.0, 1.0]
+],
+  "dcmmeta_reorient_transform": [
+    [0.0, 0.0, -1.0, 255.0],
+    [0.0, -1.0, 0.0, 255.0],
+    [-1.0, 0.0, 0.0, 191.0],
+    [0.0, 0.0, 0.0, 1.0]
+],
+  "dcmmeta_shape": [192, 256, 256],
+  "dcmmeta_slice_dim": 0,
+  "dcmmeta_version": 0.6,
+  "global": {
+    "const": {
+      "AcquisitionMatrix": [0, 256, 256, 0],
+      "AcquisitionNumber": 1,
+      "AngioFlag": "N",
+      "BitsAllocated": 16,
+      "BitsStored": 16,
+      "BodyPartExamined": "BRAIN",
+      "BurnedInAnnotation": "NO",
+      "CardiacNumberOfImages": 1,
+      "Columns": 256,
+      "DeidentificationMethodCodeSequence": [
+        {
+          "CodingSchemeDesignator": 113100.0}
+],
+      "EchoTime": 2.52,
+      "EchoTrainLength": 1,
+      "FlipAngle": 9.0,
+      "HighBit": 15,
+      "ImageOrientationPatient": [0.0, 1.0, 0.0, 0.122442, 0.0, -0.992476],
+      "ImageType": [
+        "ORIGINAL",
+        "PRIMARY",
+        "M",
+        "NORM",
+        "DIS2D",
+        "MFSPLIT"
+],
+      "ImagingFrequency": 123.261334,
+      "InPlanePhaseEncodingDirection": "ROW",
+      "InversionTime": 900.0,
+      "LargestImagePixelValue": 1059,
+      "MRAcquisitionType": "3D",
+      "MagneticFieldStrength": 3.0,
+      "Manufacturer": "Siemens Healthineers",
+      "ManufacturerModelName": "MAGNETOM Vida",
+      "Modality": "MR",
+      "NumberOfAverages": 1.0,
+      "NumberOfPhaseEncodingSteps": 256,
+      "NumberOfTemporalPositions": 1,
+      "PercentPhaseFieldOfView": 100.0,
+      "PercentSampling": 100.0,
+      "PhotometricInterpretation": "MONOCHROME2",
+      "PixelBandwidth": 179.0,
+      "PixelRepresentation": 0,
+      "PixelSpacing": [0.859375, 0.859375],
+      "ProtocolName": "t1_mprage_sag_p2_iso_0.9",
+      "RepetitionTime": 1900.0,
+      "RescaleIntercept": 0.0,
+      "RescaleSlope": 1.0,
+      "Rows": 256,
+      "SAR": 0.12302740054868,
+      "SamplesPerPixel": 1,
+      "ScanOptions": "PER",
+      "ScanningSequence": "GR",
+      "SequenceVariant": "SK",
+      "SeriesDescription": "t1_mprage_sag_p2_iso_0.9",
+      "SeriesNumber": 9,
+      "SliceThickness": 0.9,
+      "SmallestImagePixelValue": 0,
+      "SoftwareVersions": "syngo MR XA50"
+    }
+  }
+}
+```
+
+after running `cubids add-nifti-info` these fields are added to the end of the file.
+```
+    "Obliquity": "True",
+    "VoxelSizeDim1": 0.9007634520530701,
+    "VoxelSizeDim2": 0.859375,
+    "VoxelSizeDim3": 0.859375,
+    "Dim1Size": 192,
+    "Dim2Size": 256,
+    "Dim3Size": 256,
+    "NumVolumes": 1,
+    "ImageOrientation": "RAS+"
+```
+
+There are other changes made during this step that we can leverage use of datalad and VSCode to see! Open VSCode within a BIDS modality directory
+```{bash vscode, eval=F, include=T}
+module load vscode
+code BIDS/sub-HM2MOR40C/ses-499739009000procId004921ageDays/anat/
+```
+![](images/vscode-home.png)
+Then you click on the git icon on the left hand side right under the documents icon
+![](images/source-control-icon.png)
+Then you click on 'branches' to see the list of saved changes. We will look for the 'Add nifti info' save since this is the stage we want to review.
+![](images/git-branch.png)
+Then click on one of the JSONs listed underneath the 'Add nifti info' commit to see what has been changed between saves. On the left is the original document and the one of the right is the changed version. 
+![](images/commit-changes.png)
+
+### cubids group {#group}
+Here we are using the `config.yml` to group scans based on the similarities of their metadata. See docs for [cubids group](https://cubids.readthedocs.io/en/latest/cli.html#group) information. Output from this step is the `BIDS/code/CuBIDS` directory.
+
+#### output {.unnumbered}
+```
+📁 BIDS
+  ├── 📁 code
+    ├── 📁 CuBIDS
+      ├── 📄 run01_summary.tsv
+      ├── 📄 run01_summary.json
+      ├── 📄 run01_files.tsv
+      ├── 📄 run01_files.json
+      ├── 📄 run01_AcqGrouping.tsv
+      ├── 📄 run01_AcqGrouping.json
+      ├── 📄 run01_AcqGroupInfo.tsv
+      └── 📄 run01_AcqGroupInfo.json
+```
+
+```{r run01-summary-tbl, eval=T, echo=F, fig.cap='run01_summary.tsv'}
+DT::datatable(
+  read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/code/CuBIDS/run01_summary.tsv",
+           show_col_types = FALSE) |>
+    sample_n(50),
+  filter = list(position = "top",
+                settings = list(select = list(maxOptions = 10))),
+  caption = "Run01 Summary",
+  options = list(scrollX = TRUE,
+                 autoWidth = TRUE))
+```
+
+
+### scan identification {#scan-id}
+Here we are running a custom python script to further refine CuBIDS grouping and filename refinement. Outputs an edited version of `BIDS/code/CuBIDS/run01_summary.tsv` as `BIDS/code/CuBIDS/run01_summary_edited.tsv`
+```{r run01-summary-edit-tbl, eval=T, echo=F, fig.cap='run01_summary_edited.tsv'}
+DT::datatable(
+  read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/code/CuBIDS/run01_summary_edited.tsv",
+           show_col_types = FALSE) |>
+    sample_n(50),
+  filter = list(position = "top",
+                settings = list(select = list(maxOptions = 10))),
+  caption = "Run01 Summary",
+  options = list(scrollX = TRUE,
+                 autoWidth = TRUE))
+```
+
+
+### cubids apply {#cubids-apply}
+This is the active stage of file renaming based on the `cubids group` and scan identification step that generated the `run01_summary_edited` table and the `run01_files` table. 
+
+#### batching {.unnumbered}
+When there are more than 4000 scans, the cubids apply job is batched and `code/batch_cubids_apply_config.csv` is created to submit an array of cubids apply jobs. This involves splitting up the `run01_summary_edited` table into batches with an equal number of **RenameEntitySets** 
+```{r batch-cubids, eval=T, echo=F, fig.cap="Config for batched CuBIDS"}
+DT::datatable(read_csv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/batch_cubids_apply_config.csv",
+         show_col_types = FALSE),
+          filter = list(position = "top",
+                           settings = list(select = list(maxOptions = 10))),
+         caption = "Batched CuBIDS Config Table",
+         options = list(scrollX = '300px'))
+```
+
+#### output {.unnumbered}
+
+Un-batched runs
+```
+📁 BIDS
+  ├── 📁 code
+    ├── 📁 CuBIDS
+      ├── 📄 run01_summary.tsv
+      ├── 📄 run01_summary.json
+      ├── 📄 run01_files.tsv
+      ├── 📄 run01_files.json
+      ├── 📄 run01_AcqGrouping.tsv
+      ├── 📄 run01_AcqGrouping.json
+      ├── 📄 run01_AcqGroupInfo.tsv
+      ├── 📄 run01_AcqGroupInfo.json
+      ├── 📄 run02_summary.tsv
+      ├── 📄 run02_summary.json
+      ├── 📄 run02_files.tsv
+      ├── 📄 run02_files.json
+      └── 📄 run02_full_cmd.sh
+      
+```
+
+Batched runs
+```
+📁 BIDS
+  ├── 📁 code
+    ├── 📁 CuBIDS
+      ├── batch
+        ├── 📄 batch1_files.tsv
+        ├── 📄 batch1_summary_edited.tsv
+        ├── 📄 run02_batch1_full_cmd.sh
+        ├── 📄 run02_batch1_files.tsv
+        ├── 📄 run02_batch1_files.json
+        ├── 📄 run02_batch1_summary.tsv
+        ├── 📄 run02_batch1_summary.json
+        ├── 📄 run02_batch1_AcqGrouping.tsv
+        ├── 📄 run02_batch1_AcqGrouping.json
+        ├── 📄 run02_batch1_AcqGroupInfo.tsv
+        ├── 📄 run02_batch1_AcqGroupInfo.json
+        └── ...
+      ├── 📄 run01_summary.tsv
+      ├── 📄 run01_summary.json
+      ├── 📄 run01_files.tsv
+      ├── 📄 run01_files.json
+      ├── 📄 run01_AcqGrouping.tsv
+      ├── 📄 run01_AcqGrouping.json
+      ├── 📄 run01_AcqGroupInfo.tsv
+      ├── 📄 run01_AcqGroupInfo.json
+      ├── 📄 run02_summary.tsv
+      ├── 📄 run02_summary.json
+      ├── 📄 run02_files.tsv
+      ├── 📄 run02_files.json
+      └── 📄 run02_full_cmd.sh
+      
+```
+
+## Output: Filename Changes {#scan-names}
+
+```{css, echo=FALSE}
+.scroll-100 {
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: inherit;
+}
+```
+
+Ultimately, CuBIDS and the scan identification process changes the names of files. After running `cubids apply` a bash script is created with `mv` commands to change filenames. Snapshot of the `BIDS/code/CuBIDS/run02_full_cmd.sh`:
+```{r cat-full-cmd, eval=T, echo=F, message=F, warning=F, class.output="scroll-100"}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/code/CuBIDS/run02_full_cmd.sh")
+```
+
+From that script we can see the changes for our example session:
+```
+mv anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-001_T2w.nii.gz \
+  anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE3TScannerId176559Slices82Voxel0p573mm_rec-DIS2D_run-01_T2w.nii.gz
+  
+mv anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-001_T2w.json \ 
+  anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE3TScannerId176559Slices82Voxel0p573mm_rec-DIS2D_run-01_T2w.json
+  
+mv anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-002_T2w.nii.gz \ 
+  anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE3TScannerId176559Slices92Voxel0p625mm_rec-DIS2D_run-02_T2w.nii.gz
+  
+mv anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE_rec-DIS2D_run-002_T2w.json \
+  anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-TSE3TScannerId176559Slices92Voxel0p625mm_rec-DIS2D_run-02_T2w.json
+  
+mv anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-MPRAGE_rec-DIS2D_run-001_T1w.nii.gz \
+  anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-MPRAGE3TScannerId176559Slices256Voxel0p901mm_rec-DIS2D_run-01_T1w.nii.gz
+  
+mv anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-MPRAGE_rec-DIS2D_run-001_T1w.json \   
+  anat/sub-HM2MOR40C_ses-499739009000procId004921ageDays_acq-MPRAGE3TScannerId176559Slices256Voxel0p901mm_rec-DIS2D_run-01_T1w.json
+
+```
+
+In general, our desired format for scan names is as follows the [BIDS template](https://bids.neuroimaging.io/getting_started/folders_and_files/files.html#filename-template) with a few customizations:
+
+```
+<subject-id>_<session-id>_acq-<ACQ><MFS>ScannerId<SCANNER>Slices<DIM3>Voxel<Voxel1>mm_rec-<REC>_run-<RUN>_<suffix>.<extension>
+```
+
+where:   
+  - `subject_id` is the `pat_id` from Arcus prefixed by 'sub-'   
+  - `session_id` is the `proc_ord_id` and `proc_ord_age` from Arcus prefixed by 'ses-', separated by 'procId' and suffixed by 'ageDays'. `proc_ord_age` is padded by zeros for to make 6 digits   
+  - `ACQ` is the acquistion type based on the sequence run while the patient was getting scanned   
+  - `MFS` is the `MagneticFieldStrength` from the DICOM metadata either **1p5T** or **3T**   
+  - `SCANNER` is the serial number of the scanner the patient was in from the DICOM/JSON field `DeviceSerialNumber`   
+  - `DIM3` is the number of slices acquired per sequence run from the JSON metadata field `Dim3Size` & DICOM field `Dim3`   
+  - `Voxel` is the size of the voxels the sequence acquired from the JSON metadata field `VoxelSizeDim1` & DICOM field `SliceThickness`   
+  - `REC` is the image reconstruction technique from the DIOMC/JSON metadata field `ImageType`   
+  - `RUN` is the run number of the scan   
+  - `suffix` is the type of scan acquired, (e.g. T1w, T2w, FLAIR, dwi, etc)   
+  - `extension` is either json for the JSON or nii.gz for the NifTI   
+
+Sometimes scans will have additional keys such as:   
+  - `ce-gad` referring to the scan occurring after contrast injection where 'gad' refers to the gadolonium that is used to increase image contrast for diagnostic imaging   
+  - `sample-fetal` referring to scans of fetal brains   
+  - `mt-on` referring to magnetization transfer during a sequence   
+
+
+## Saving Progress {#save-cubids}
+Now we're done with CuBIDS we can save our dataset!
+```{bash save-cubids, eval=F, include=T}
+srun --time 12:00:00 --mem 5G datalad save -m 'cubids apply run01' -r -J auto
+```
+We are saving these changes recursively to the top level `BIDS` dataset so each sub-dataset saves. For the `cubids group` step, the script does a top level save only thus when your in the `BIDS` directory, running `git log --oneline` returns:
+![](images/cubids-save1.png)
+versus when in the `BIDS/sub-HM2MOR40C` the log reads:
+![](images/cubids-save2.png)
+We can see that there is no commit for the 'CuBiDS group run01' step since that was only a top level save and not a recursive sub-dataset save.
+
+
+Now we continue to the next stage! ➡️
+
+
+## Behind The Scenes {#cubids-bts}
+Behind the scenes are 4 local scripts, 6 containerized scripts/dictionaries, and 1 containerized python packages
+
+### Local Scripts {#cubids-local-scripts}
+
+#### `code/run-cubids-prep.sh`
+  1. Runs `code/run-clin-dataorg.py` **_cubids-prep_** command    
+  2. If previous command successfully completes, runs **_cubids-apply_** command. Upon error, script stops  
+  
+#### `code/run-clin-dataorg.py`
+  1. Concatenates subject specific heudiconv performance tables[^3] into `proc_summary.tsv` and removes the individual tables after concatenation.   
+  2. Makes table with filenames for any `problemtatic_scans`.  
+  3. Removes heudiconv run incrementors in the `/mnt/isilon/bgdlab_processing/Data/tmp_heudiconv` space.  
+  4. Runs `cubids add-nifti-info` within the container, saving changes in datalad if run successfully, quits upon failure.   
+  5. Runs `cubids group` within the container, saving changes in datalad if run successfully, quits upon failure      
+  6. Runs `identifyFilesFromCubids.py` within the container, saving changes in datalad if run successfully, quits upon failure   
+  7. Runs `code/cubids-apply.sh` script on the entire dataset if number of files less than 4000. Else, it creates 10 batches with equal number of subjects to speed up the process   
+
+#### `code/cubids-apply.sh`
+  1. Runs `cubids apply` within the container on either the entire dataset or an individual batch using an array config file output from the **_cubids-prep_** command   
+
+#### `code/batch-cubids-combine.sh`
+  1. Runs `code/run-clin-dataorg.py` **_combine_** command to concatenate CuBIDS batches   
+
+[^3]: See [heudiconv logs](#heudi-logs) for table description
+
+  
+  
+### Containerized Scripts {#cubids-contain-scripts}
+  1. `config.yml`   
+    - Config file required to run `cubids group` specify which metadata to aggregate and tolerance ranges to apply   
+  2. `identifyFilesFromCubids.py`   
+    - Script that looks to identify specific sequences specifed in the parameter range table using custom tolerance ranges that couldn't be specified in the CuBIDS config   
+  3. `parameter_ranges.tsv`   
+    - The metadata for the most common sequences within CHOP imaging data along with tolerance ranges to identify unknown scans and to label standard/variant scans   
+  
+### Containerized Python Packages {#cubids-contain-packs}
+  1. CuBIDS   
+    - Custom version of CuBIDS   
+  
+
+<!--chapter:end:03-cubids.Rmd-->
+
+# Post-CuBIDS {#post-cubids}
+
+After CuBIDS changes the names of scans and associated JSONs, we have to manually update the session specific `scans.tsv` tables with the new filenames. In this step we update this table and check if any BIDS keys[^4] were removed from the filename so that we can add them back in. 
+
+[^4]: refer to the BIDS template for possible [BIDS keys](https://bids.neuroimaging.io/getting_started/folders_and_files/files.html#filename-template)
+
+```{r scans-tbl, eval=T, echo=F, fig.cap="Scans summary table"}
+DT::datatable(read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/sub-HM2MOR40C_ses-499739009000procId004921ageDays_scans.tsv",
+          show_col_types = FALSE),
+           filter = list(position = "top",
+                            settings = list(select = list(maxOptions = 10))),
+          caption = "Scans Table",
+          options = list(scrollX = '300px'))
+```
+
+
+## Main Command {#pc-cmd}
+```{bash pc-cmd, eval=F}
+python run-clin-dataorg.py $PWD post-cubids \
+	-b $BASE_DIR \
+	-n mydataset \
+	-mm $BASE_DIR/mydataset/BIDS/code/CuBIDS/run02_full_cmd.sh
+
+```
+Now we encounter a new argument `-mm $CUBIDS_FULL_CMD` which refers to the command script output from running `cubids apply` in the previous chapter. We use this to compare our new filenames to the old filenames to see if any BIDS keys were removed. If so, we add those keys back into the filename. This rarely happens in this second version of the data-org container but is retained in the script for backwards compatibility with the first version of the container.  
+
+<div style="padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-left: 5px solid #337ab7;">
+  <p style="margin-top: 0; color: #337ab7;"><strong>💡 Tip</strong></p>
+  <p>You can set global variables before running commands to shorten the lengths of arguments, e.g. `/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/code/CuBIDS/run02_full_cmd.sh` becomes `-mm $BASE_DIR/mydataset/BIDS/code/CuBIDS/run02_full_cmd.sh` </p>
+</div>
+
+After running the command, output is information for the array of jobs launched to edit each subjects' session directories. 
+![](images/pc-out1.png)
+
+Since these jobs are doing pretty simple tasks, they finish quickly. To make sure they finished successfully instead of failing due to errors, run this to check the job status, updating the `postCubids_job_summary.tsv`
+```{bash pc-check-stat, eval=F}
+python run-clin-dataorg.py $PWD post-cubids -j
+```
+![](images/pc-out2.png)
+Also output are logs for the jobs `code/logs/curate/postCubids-<jobid>_<arrayid>.out`
+```{r cat-pc-logs, eval=T, echo=F, warning=F, message=F, class.output="scroll-100"}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/code/logs/curation/postCubids-1689823_10.out")
+```
+
+## Save Progress
+Now we save our progress by switching into the `BIDS` directory and running:
+```{bash pc-save, eval=F}
+srun --time 12:00:00 --mem 5G datalad save -m 'Post CuBIDS updates' -r -J auto
+```
+
+Now we continue to the next stage! ➡️
+
+
+# Annotation {#annot}
+Now for the final stage we annotate the dataset creating the [data summary](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/data-summary-files.html) and [data description](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/dataset-description.html) files required by BIDS.
+
+## Main Command {#annot-cmd}
+```{bash annot-cmd, eval=F}
+python run-clin-dataorg.py $PWD annotate \
+	-b $BASE_DIR \
+	-n mydataset \
+	-m $MANIFEST \
+	-d $DICOMS
+```
+
+Output is the singularity command run to create the `participants.tsv`. Then static copies of the `participants.json` and `scans.json` are copied from the container. The `README.md` and `CHANGES` are customized to the dataset based on the list of dicoms, input manifest, and final subject/session numbers from the `participants.tsv`. Dataset is saved after changes are made automatically. Note that this isn't a recursive datalad save, these changes are only registered to the top level `BIDS` dataset since the individual sessions aren't being changed. 
+
+![](images/annotate-out1.png)
+
+
+We don't follow _all_ the rules per BIDS specification but we still need to have all the required files. The only file we currently don't make is the `sessions.tsv` table that goes into each subject directory.
+```
+📁 sub-HM2MOR40C
+  ├── ses-499739009000procId004921ageDays
+    ├── 📁 anat
+      ├── 📄 sub-HM2MOR40C_ses-499739009000procId004921ageDays_scans.tsv ✅
+      └── ...
+    └── 📄 sub-HM2MOR40C_sessions.tsv ❌
+```
+In the future this can be changed so that we are more accurately following [BIDS longitudinal standards](https://bids-specification.readthedocs.io/en/stable/longitudinal-and-multi-site-studies.html#longitudinal-and-multi-site-studies)
+
+Our example participants file
+```{r participants-file, eval=T, echo=F, fig.cap="participants file"}
+DT::datatable(read_tsv("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/participants.tsv",
+          show_col_types = FALSE),
+           filter = list(position = "top",
+                            settings = list(select = list(maxOptions = 10))),
+          caption = "Participants File",
+          options = list(scrollX = '300px'))
+```
+
+Here is the `README.md` where you will need to change the **TO_DO** to your name as the curator of the dataset (or multiple names if applicable).
+```{r cat-readme, eval=T, echo=F, warning=F, message=F, class.output="scroll-100"}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/README.md")
+```
+
+Here is the `CHANGES` where only a single commit message is written. If you have to change anything in the dataset, it should be noted in this document (along with saving the changes in datalad.)
+```{r cat-changes, eval=T, echo=F, warning=F, message=F, class.output="scroll-100"}
+readLines("/mnt/isilon/bgdlab_processing/Dabriel/bgd_chop_curation/mydataset/BIDS/CHANGES")
+```
+
+<!--chapter:end:04-post-cubids.Rmd-->
+
+# Collaboration {#collab}
+
+When multiple users are operating on the same dataset, there can be some issues.  
+
+First, after running any stage, look at the color the directories and files are highlighted.  
+![](images/perms1.png)
+
+
+In the example, files are white, directories are blue. This means that the only user who can edit/delete these files and directories is the one who created them. Respublica by default gives everyone in the BGDLab group read permissions, but you will have to manually grant write (edit) permissions. Files that are green are executable. You can also run `ls -l` to list the permissions. 
+![](images/perms2.png)
+where each group of 3 letters (after the first character which just means file or directory) refers to access permissions so _-rwxr-x- - -_ means there are read, write permissions for the user (creator) and read and execute permissions for the group, and no permission for others.   
+
+To change permissions, run `chmod 777 -R .` while in your top level directory `$BASE_DIR/mydataset` for this example.   
+ ![](images/perms3.png)
+
+Now the directories and files are highlighted in green text indicating that there are now group write permissions! And now the permissions are listed as _-rwxrwxrwx._   
+![](images/perms4.png)
+
+Review [linux file permissions](https://www.redhat.com/en/blog/linux-file-permissions-explained) for more information.  
+
+After doing this it's good practice to go into the `BIDS` and `sourcedata` datasets to do a top level only save mentioning that permissions were updated.
+```
+datalad save -m 'granted write permission' -J auto
+```
+
+## Debugging
+
+Sometimes after trying to save a datalad dataset, you'll get an error that will suggest a command to run to correct that error. The command should resemble the one below, you can copy and paste the suggested command that then run it before running the original datalad save command again
+```
+find ${PWD} -name '.git' -type d -exec bash -c 'git config --global --add safe.directory ${0%/.git}' {} \;
+```
+
+
+<!--chapter:end:05-collaboration.Rmd-->
+
+`r if (knitr::is_html_output()) '
+# References {-}
+'`
+
+<!--chapter:end:06-references.Rmd-->
+

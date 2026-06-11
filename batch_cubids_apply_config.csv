@@ -1,0 +1,12 @@
+split_id,summary_path,files_path,name
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch1_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch1_files.tsv,run02_batch1
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch2_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch2_files.tsv,run02_batch2
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch3_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch3_files.tsv,run02_batch3
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch4_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch4_files.tsv,run02_batch4
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch5_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch5_files.tsv,run02_batch5
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch6_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch6_files.tsv,run02_batch6
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch7_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch7_files.tsv,run02_batch7
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch8_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch8_files.tsv,run02_batch8
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch9_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch9_files.tsv,run02_batch9
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch10_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch10_files.tsv,run02_batch10
+,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch11_summary_edited.tsv,/mnt/isilon/bgdlab_processing/Data/SLIP/scit605_2025_04/BIDS/code/CuBIDS/batch/batch11_files.tsv,run02_batch11
